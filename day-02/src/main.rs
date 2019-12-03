@@ -74,7 +74,6 @@ fn run(input: &Vec<usize>, noun: usize, verb: usize) -> Result<usize, Error> {
     Ok(data[0])
 }
 
-
 fn execute(input: &mut Vec<usize>) -> Result<(), Error> {
     // Command has the following schema:
     // OPCODE A_POS B_POS RESULT_POS
@@ -131,7 +130,9 @@ mod tests {
 
     #[test]
     fn run_test() {
-        let input = File::open("day-02/gravity-assist-src.txt").expect("Could not open file");
+        // There's no need for "day-02" here, the tests are running from each 
+        // cargo member and not at the workspace level.
+        let input = File::open("gravity-assist-src.txt").expect("Could not open file");
         let src = read_program(input);
         assert_eq!(run(&src, 12, 2).unwrap(), 3516593)
     }
