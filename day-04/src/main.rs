@@ -18,17 +18,18 @@ fn bruteforce() {
 fn has_same_adjacent_digits(candidate: &str) -> bool {
     let mut chars = candidate.chars();
 
-    if let Some(mut previous) = chars.next() { // Just handle empty str
+    if let Some(mut previous) = chars.next() {
+        // Just handle empty str
         let mut group_size = 1;
-    
+
         while let Some(cur) = chars.next() {
-            if previous == cur { 
-                group_size += 1; 
+            if previous == cur {
+                group_size += 1;
             } else {
                 if group_size == 2 {
                     // Our matching characters are not part of a larger group,
                     // we're good to go!
-                    return true
+                    return true;
                 }
                 // The same-character chain is over. Reset the group size.
                 group_size = 1;
@@ -38,7 +39,7 @@ fn has_same_adjacent_digits(candidate: &str) -> bool {
 
         // Handle the case where the adjacent chars are the two last one.
         if group_size == 2 {
-            return true
+            return true;
         }
     }
 
@@ -52,7 +53,6 @@ fn digits_never_decrease(candidate: &str) -> bool {
 
     origin == ordered
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -84,5 +84,3 @@ mod tests {
         assert!(!has_same_adjacent_digits("12349576"));
     }
 }
-
-

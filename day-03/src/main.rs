@@ -1,3 +1,5 @@
+/// Day 05 contains a better version of this computer.
+///
 use std::cmp::Ord;
 use std::fmt;
 use std::fs::File;
@@ -169,7 +171,7 @@ fn intersects(a: &Segment, b: &Segment) -> Option<Intersection> {
 
         // We don't want the origin
         if crossing.x == 0 && crossing.y == 0 {
-            return None
+            return None;
         }
 
         // add the cumulative distance.
@@ -196,37 +198,37 @@ fn path_to_segments(path: &Vec<Instruction>) -> Vec<Segment> {
     path.iter()
         .map(|instruction| {
             let (new_point, length) = match instruction {
-                Instruction::Up(s) => ( 
+                Instruction::Up(s) => (
                     Point {
                         x: previous.x,
                         y: previous.y + *s as isize,
-                    }, *s
+                    },
+                    *s,
                 ),
                 Instruction::Down(s) => (
                     Point {
                         x: previous.x,
                         y: previous.y - *s as isize,
-                    }, *s
+                    },
+                    *s,
                 ),
                 Instruction::Left(s) => (
                     Point {
                         x: previous.x - *s as isize,
                         y: previous.y,
-                    }, *s
+                    },
+                    *s,
                 ),
                 Instruction::Right(s) => (
                     Point {
                         x: previous.x + *s as isize,
                         y: previous.y,
-                    }, *s
+                    },
+                    *s,
                 ),
             };
 
-            let segment = Segment::new(
-                previous,
-                new_point,
-                cumulative_steps
-            );
+            let segment = Segment::new(previous, new_point, cumulative_steps);
 
             previous = segment.to;
             cumulative_steps += length;
