@@ -8,10 +8,9 @@ use std::io::{stdin, BufRead, BufReader, Read};
 // 193 |                 self.set_mem(result_position.try_into().unwrap(), a + b);
 //     |                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-
 /// The TEST diagnostic program will start by requesting from the user the ID of
 /// the system to test by running an input instruction - provide it 1, the ID
-/// for the ship's air conditioner unit. 
+/// for the ship's air conditioner unit.
 fn main() {
     let input = File::open("day-05/TEST-diagnostic.txt").expect("Could not open file");
     let program = Program::new(input).expect("Could not read program");
@@ -26,7 +25,7 @@ fn main() {
 #[derive(Debug, PartialEq)]
 pub enum Error {
     InvalidSourceCode,
-    /// Opcode is an unknown value. 
+    /// Opcode is an unknown value.
     /// Indicate the faulty opcode value
     InvalidOpcode(isize),
     /// A ParamMode is invalid. It either a wrong value or an impossible value
@@ -36,7 +35,7 @@ pub enum Error {
     IncompleteInstruction,
     /// Error while trying to access a memory address
     PointerAccessError,
-    InvalidUserInput
+    InvalidUserInput,
 }
 
 impl fmt::Display for Error {
@@ -54,11 +53,11 @@ impl fmt::Display for Error {
 
 #[derive(PartialEq, Debug, Copy, Clone)]
 pub enum Opcode {
-    Add = 1,         // OPCODE A B RESULT_POS
-    Multiply = 2,    // OPCODE A B RESULT_POS
-    StoreInput = 3,  // OPCODE A where A is the location where to store input 
-    Output = 4,      // OPCODE A
-    Exit = 99,       // OPCODE
+    Add = 1,        // OPCODE A B RESULT_POS
+    Multiply = 2,   // OPCODE A B RESULT_POS
+    StoreInput = 3, // OPCODE A where A is the location where to store input
+    Output = 4,     // OPCODE A
+    Exit = 99,      // OPCODE
 }
 
 impl Opcode {
@@ -69,7 +68,7 @@ impl Opcode {
             Opcode::Multiply => 4,
             Opcode::StoreInput => 2,
             Opcode::Output => 2,
-            Opcode::Exit => 1
+            Opcode::Exit => 1,
         }
     }
 }
@@ -78,50 +77,50 @@ impl Opcode {
 /// in Position mode
 #[derive(PartialEq, Debug, Clone, Copy)]
 pub enum ParamMode {
-    Position,  // Value is stored at the given address 
-    Immediate, // Value is provided by the param itself 
+    Position,  // Value is stored at the given address
+    Immediate, // Value is provided by the param itself
 }
 
 pub struct Param {
     content: isize,
-    mode: ParamMode
+    mode: ParamMode,
 }
 
 pub struct Instruction {
     opcode: Opcode,
-    params: Vec<Param>
+    params: Vec<Param>,
 }
 
 impl Instruction {
     pub fn parse_meta_data(value: isize) -> Result<(Opcode, Vec<ParamMode>), Error> {
         let opcode = match value % 100 {
-            // we could use the [num_enum](https://crates.io/crates/num_enum) 
-            // crate for this. 
+            // we could use the [num_enum](https://crates.io/crates/num_enum)
+            // crate for this.
             1 => Opcode::Add,
             2 => Opcode::Multiply,
             3 => Opcode::StoreInput,
             4 => Opcode::Output,
             99 => Opcode::Exit,
-            _ => return Err(Error::InvalidOpcode(value))
+            _ => return Err(Error::InvalidOpcode(value)),
         };
 
         let mut modes = vec![ParamMode::Position; opcode.size() - 1];
-        
+
         // Get the number of digits of value
         // let digits = (value as f32).log10().floor() as isize + 1;
 
         for i in 0..modes.len() {
             // Get the i-th digit in the value.
             // In the case of implicit modes (i.e., the mode of some parameters
-            // is not specified), we fallback to 0 which is the default mode 
-            // anyway. 
-            let ten = 10 as isize; 
-            let digit = (value % ten.pow(i as u32 + 3)) / ten.pow(i as u32 + 2); 
+            // is not specified), we fallback to 0 which is the default mode
+            // anyway.
+            let ten = 10 as isize;
+            let digit = (value % ten.pow(i as u32 + 3)) / ten.pow(i as u32 + 2);
 
             modes[i] = match digit {
                 0 => ParamMode::Position,
                 1 => ParamMode::Immediate,
-                _ => return Err(Error::InvalidParamMode(value))
+                _ => return Err(Error::InvalidParamMode(value)),
             };
         }
 
@@ -158,9 +157,9 @@ impl Program {
 /// A Run is separated from the Program because it mutates the memory while
 /// runnning. It is useful to keep it separate so we can make multiple
 /// independent runs.
-/// Memory is a simple Vec 
+/// Memory is a simple Vec
 pub struct Run {
-    /// The Program Counter moves from one instruction head to another. 
+    /// The Program Counter moves from one instruction head to another.
     /// It *never* points to the params of an instruction.
     pc: usize,
     memory: Vec<isize>,
@@ -168,18 +167,20 @@ pub struct Run {
 
 impl Run {
     pub fn new(memory: Vec<isize>) -> Self {
-        Self {
-            pc: 0,
-            memory
-        }
+        Self { pc: 0, memory }
     }
 
     pub fn ask_integer_from_user(&self) -> Result<isize, Error> {
         println!("Please enter an integer:");
         let mut input = String::new();
-        stdin().read_line(&mut input).map_err(|_| Error::InvalidUserInput)?;
-        let integer = input.trim().parse::<isize>().map_err(|_| Error::InvalidUserInput)?;
-        
+        stdin()
+            .read_line(&mut input)
+            .map_err(|_| Error::InvalidUserInput)?;
+        let integer = input
+            .trim()
+            .parse::<isize>()
+            .map_err(|_| Error::InvalidUserInput)?;
+
         Ok(integer)
     }
 
@@ -187,7 +188,7 @@ impl Run {
     fn set_mem(&mut self, address: usize, value: isize) -> Result<(), Error> {
         if address > self.memory.len() {
             Err(Error::PointerAccessError)
-        } else  {
+        } else {
             self.memory[address] = value;
             Ok(())
         }
@@ -197,7 +198,7 @@ impl Run {
     fn get_mem(&self, address: usize) -> Result<isize, Error> {
         if address > self.memory.len() {
             Err(Error::PointerAccessError)
-        } else  {
+        } else {
             Ok(self.memory[address])
         }
     }
@@ -237,11 +238,9 @@ impl Run {
                 let a = self.param_value(&instruction.params[0])?;
                 println!("Output Instruction: {}", a);
             }
-            Opcode::Exit => {
-                return Ok(false)
-            }
+            Opcode::Exit => return Ok(false),
         };
-        
+
         // By default we just continue execution
         Ok(true)
     }
@@ -252,13 +251,14 @@ impl Run {
         while self.pc < self.memory.len() {
             let instruction_head = self.memory[self.pc];
             let (opcode, param_modes) = Instruction::parse_meta_data(instruction_head)?;
-            
-            let params = param_modes.iter()
+
+            let params = param_modes
+                .iter()
                 .enumerate()
                 .map(|(index, mode)| -> Result<Param, Error> {
                     Ok(Param {
                         content: self.get_mem(self.pc + index + 1)?,
-                        mode: *mode
+                        mode: *mode,
                     })
                 })
                 .collect::<Result<Vec<Param>, Error>>()?;
@@ -283,9 +283,9 @@ mod tests {
     fn instruction_parse_meta_data_test() {
         let (opcode, modes) = Instruction::parse_meta_data(1002).unwrap();
         let expected_modes = vec![
-            ParamMode::Position,   // 0
-            ParamMode::Immediate,  // 1
-            ParamMode::Position    // This one is implicit
+            ParamMode::Position,  // 0
+            ParamMode::Immediate, // 1
+            ParamMode::Position,  // This one is implicit
         ];
         assert_eq!(opcode, Opcode::Multiply); // 02
         assert_eq!(modes, expected_modes);
@@ -299,11 +299,10 @@ mod tests {
         let expected_modes = vec![
             ParamMode::Position, // Implicit
             ParamMode::Position, // Implicit
-            ParamMode::Position  // Implicit
+            ParamMode::Position, // Implicit
         ];
         assert_eq!(opcode, Opcode::Add);
         assert_eq!(modes, expected_modes);
-
 
         // FIXME: Add test for invalid ParamMode for a given param
         // e.g., set an Immediate mode for a write location param.
