@@ -115,5 +115,25 @@
             "args": [],
             "cwd": "${workspaceFolder}"
         }
+
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in executable 'day-05'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--bin=day-05",
+                    "--package=day-05"
+                ],
+                "filter": {
+                    "name": "day-05",
+                    "kind": "bin"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        }
     ]
 }

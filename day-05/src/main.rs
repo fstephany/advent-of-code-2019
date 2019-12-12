@@ -1,6 +1,27 @@
 use std::fmt;
 use std::fs::File;
-use std::io::{BufRead, BufReader, Read};
+use std::io::{stdin, BufRead, BufReader, Read};
+
+// General note. We could be safer when converting integer
+// help: you can convert an `isize` to `usize` and panic if the converted value wouldn't fit
+//     |
+// 193 |                 self.set_mem(result_position.try_into().unwrap(), a + b);
+//     |                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+
+/// The TEST diagnostic program will start by requesting from the user the ID of
+/// the system to test by running an input instruction - provide it 1, the ID
+/// for the ship's air conditioner unit. 
+fn main() {
+    let input = File::open("day-05/TEST-diagnostic.txt").expect("Could not open file");
+    let program = Program::new(input).expect("Could not read program");
+
+    println!("Running the diagnostic program...");
+    match program.run() {
+        Ok(()) => println!("Done"),
+        Err(e) => println!("Error while running: {}", e),
+    }
+}
 
 #[derive(Debug, PartialEq)]
 pub enum Error {
@@ -12,9 +33,10 @@ pub enum Error {
     /// (e.g., Immediate mode for a write operation)
     InvalidParamMode(isize),
     /// A command is not complete. Eg., missing parameters for a given operation
-    IncompleteCommand,
+    IncompleteInstruction,
     /// Error while trying to access a memory address
     PointerAccessError,
+    InvalidUserInput
 }
 
 impl fmt::Display for Error {
@@ -23,13 +45,14 @@ impl fmt::Display for Error {
             Error::InvalidSourceCode => write!(f, "Error while reading source code"),
             Error::InvalidOpcode(v) => write!(f, "InvalidOpcode: {})", v),
             Error::InvalidParamMode(v) => write!(f, "InvalidParamMode. Opcode decl.: {})", v),
-            Error::IncompleteCommand => write!(f, "Incomplete Command"),
+            Error::IncompleteInstruction => write!(f, "Incomplete Command"),
             Error::PointerAccessError => write!(f, "Invalid pointer address"),
+            Error::InvalidUserInput => write!(f, "Invalid user input"),
         }
     }
 }
 
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Copy, Clone)]
 pub enum Opcode {
     Add = 1,         // OPCODE A B RESULT_POS
     Multiply = 2,    // OPCODE A B RESULT_POS
@@ -39,7 +62,38 @@ pub enum Opcode {
 }
 
 impl Opcode {
-    pub fn parse(value: isize) -> Result<(Opcode, Vec<ParamMode>), Error> {
+    /// The total size of the instruction (opcode + parameters)
+    pub fn size(&self) -> usize {
+        match self {
+            Opcode::Add => 4,
+            Opcode::Multiply => 4,
+            Opcode::StoreInput => 2,
+            Opcode::Output => 2,
+            Opcode::Exit => 1
+        }
+    }
+}
+
+/// Beware that Parameters that are used to *store* a value are of course always
+/// in Position mode
+#[derive(PartialEq, Debug, Clone, Copy)]
+pub enum ParamMode {
+    Position,  // Value is stored at the given address 
+    Immediate, // Value is provided by the param itself 
+}
+
+pub struct Param {
+    content: isize,
+    mode: ParamMode
+}
+
+pub struct Instruction {
+    opcode: Opcode,
+    params: Vec<Param>
+}
+
+impl Instruction {
+    pub fn parse_meta_data(value: isize) -> Result<(Opcode, Vec<ParamMode>), Error> {
         let opcode = match value % 100 {
             // we could use the [num_enum](https://crates.io/crates/num_enum) 
             // crate for this. 
@@ -73,35 +127,6 @@ impl Opcode {
 
         Ok((opcode, modes))
     }
-
-    /// The total size of the instruction (opcode + parameters)
-    pub fn size(&self) -> usize {
-        match self {
-            Opcode::Add => 4,
-            Opcode::Multiply => 4,
-            Opcode::StoreInput => 2,
-            Opcode::Output => 2,
-            Opcode::Exit => 1
-        }
-    }
-}
-
-/// Beware that Parameters that are used to *store* a value are of course always
-/// in Position mode
-#[derive(PartialEq, Debug, Clone, Copy)]
-pub enum ParamMode {
-    Position,  // Value is stored at the given address 
-    Immediate, // Value is provided by the param itself 
-}
-
-pub struct Param {
-    value: isize,
-    mode: ParamMode
-}
-
-pub struct Instruction {
-    opcode: Opcode,
-    params: Vec<Param>
 }
 
 pub struct Program {
@@ -122,28 +147,44 @@ impl Program {
         Ok(Self { src: instructions })
     }
 
-    pub fn run(&self, noun: isize, verb: isize) -> Result<isize, Error> {
-        let mut data = self.src.clone();
-        data[1] = noun;
-        data[2] = verb;
-
-        let mut run = Run { memory: data };
+    /// As the memory is copied for each run, they are fully independant.
+    pub fn run(&self) -> Result<(), Error> {
+        let data = self.src.clone();
+        let mut run = Run::new(data);
         run.start()
     }
 }
-
 
 /// A Run is separated from the Program because it mutates the memory while
 /// runnning. It is useful to keep it separate so we can make multiple
 /// independent runs.
 /// Memory is a simple Vec 
 pub struct Run {
+    /// The Program Counter moves from one instruction head to another. 
+    /// It *never* points to the params of an instruction.
+    pc: usize,
     memory: Vec<isize>,
 }
 
 impl Run {
+    pub fn new(memory: Vec<isize>) -> Self {
+        Self {
+            pc: 0,
+            memory
+        }
+    }
+
+    pub fn ask_integer_from_user(&self) -> Result<isize, Error> {
+        println!("Please enter an integer:");
+        let mut input = String::new();
+        stdin().read_line(&mut input).map_err(|_| Error::InvalidUserInput)?;
+        let integer = input.trim().parse::<isize>().map_err(|_| Error::InvalidUserInput)?;
+        
+        Ok(integer)
+    }
+
     /// Store the value stored at the given address
-    pub fn set_mem(&mut self, address: usize, value: isize) -> Result<(), Error> {
+    fn set_mem(&mut self, address: usize, value: isize) -> Result<(), Error> {
         if address > self.memory.len() {
             Err(Error::PointerAccessError)
         } else  {
@@ -153,7 +194,7 @@ impl Run {
     }
 
     /// Return the value stored at the given address
-    pub fn get_mem(&self, address: usize) -> Result<isize, Error> {
+    fn get_mem(&self, address: usize) -> Result<isize, Error> {
         if address > self.memory.len() {
             Err(Error::PointerAccessError)
         } else  {
@@ -161,65 +202,76 @@ impl Run {
         }
     }
 
+    /// Get a param value based on its mode
+    fn param_value(&self, param: &Param) -> Result<isize, Error> {
+        let val = if param.mode == ParamMode::Immediate {
+            param.content
+        } else {
+            self.get_mem(param.content as usize)?
+        };
 
-    pub fn start(&mut self) -> Result<isize, Error> {
-        // Command has the following schema:
-        // 
-        for current in (0..self.memory.len()).step_by(4) {
-            let opcode = *self
-                .memory
-                .get(current)
-                .ok_or_else(|| Error::IncompleteCommand)?;
-
-            if opcode == 99 {
-                // returns immediately, there is no need to go any further.
-                return Ok(self.memory[0]);
-            }
-
-            let a_pos = self.get_mem(current + 1)?;
-            let b_pos = self.get_mem(current + 2)?;
-            let res_pos = self.get_mem(current + 3)?;
-
-            // Fetch the data themselves
-            let a = self.get_mem(a_pos as usize)?;
-            let b = self.get_mem(b_pos as usize)?;
-
-            let result = match opcode {
-                1 => a + b,
-                2 => a * b,
-                _ => return Err(Error::InvalidOpcode(opcode)),
-            };
-
-            self.memory[res_pos as usize] = result;
-        }
-
-        Ok(self.memory[0])
-    }
-}
-
-fn main() {
-    let input = File::open("day-02/gravity-assist-src.txt").expect("Could not open file");
-    let program = Program::new(input).expect("Could not read program");
-
-    println!("Running the `1202 program alarm` with noun=12 and verb=2");
-    match program.run(12, 2) {
-        Ok(result) => println!("Result: {}", result),
-        Err(e) => println!("Error while running: {}", e),
+        Ok(val)
     }
 
-    let target = 19690720;
-    println!(
-        "Brute force to find the verb and noun that will produce: {}",
-        target
-    );
+    /// Return false if the program should stop.
+    fn execute_instruction(&mut self, instruction: &Instruction) -> Result<bool, Error> {
+        match &instruction.opcode {
+            Opcode::Add => {
+                let a: isize = self.param_value(&instruction.params[0])?;
+                let b = self.param_value(&instruction.params[1])?;
+                let result_position = instruction.params[2].content;
+                self.set_mem(result_position as usize, a + b)?;
+            }
+            Opcode::Multiply => {
+                let a: isize = self.param_value(&instruction.params[0])?;
+                let b = self.param_value(&instruction.params[1])?;
+                let result_position = instruction.params[2].content;
+                self.set_mem(result_position as usize, a * b)?;
+            }
+            Opcode::StoreInput => {
+                let user_input = self.ask_integer_from_user()?;
+                let result_position = instruction.params[0].content as usize;
+                self.set_mem(result_position, user_input)?;
+            }
+            Opcode::Output => {
+                let a = self.param_value(&instruction.params[0])?;
+                println!("Output Instruction: {}", a);
+            }
+            Opcode::Exit => {
+                return Ok(false)
+            }
+        };
+        
+        // By default we just continue execution
+        Ok(true)
+    }
 
-    for noun in 0..100 {
-        for verb in 0..100 {
-            if program.run(noun, verb) == Ok(target) {
-                println!("--> noun={}, verb={}", noun, verb);
-                break;
+    pub fn start(&mut self) -> Result<(), Error> {
+        self.pc = 0;
+
+        while self.pc < self.memory.len() {
+            let instruction_head = self.memory[self.pc];
+            let (opcode, param_modes) = Instruction::parse_meta_data(instruction_head)?;
+            
+            let params = param_modes.iter()
+                .enumerate()
+                .map(|(index, mode)| -> Result<Param, Error> {
+                    Ok(Param {
+                        content: self.get_mem(self.pc + index + 1)?,
+                        mode: *mode
+                    })
+                })
+                .collect::<Result<Vec<Param>, Error>>()?;
+
+            let instruction = Instruction { opcode, params };
+            if self.execute_instruction(&instruction)? {
+                self.pc += opcode.size();
+            } else {
+                break; // Terminate the program here.
             }
         }
+
+        Ok(())
     }
 }
 
@@ -228,8 +280,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn opcode_parse_test() {
-        let (opcode, modes) = Opcode::parse(1002).unwrap();
+    fn instruction_parse_meta_data_test() {
+        let (opcode, modes) = Instruction::parse_meta_data(1002).unwrap();
         let expected_modes = vec![
             ParamMode::Position,   // 0
             ParamMode::Immediate,  // 1
@@ -238,12 +290,12 @@ mod tests {
         assert_eq!(opcode, Opcode::Multiply); // 02
         assert_eq!(modes, expected_modes);
 
-        let (opcode, modes) = Opcode::parse(99).unwrap();
+        let (opcode, modes) = Instruction::parse_meta_data(99).unwrap();
         let expected_modes = Vec::new();
         assert_eq!(opcode, Opcode::Exit);
         assert_eq!(modes, expected_modes);
 
-        let (opcode, modes) = Opcode::parse(01).unwrap();
+        let (opcode, modes) = Instruction::parse_meta_data(01).unwrap();
         let expected_modes = vec![
             ParamMode::Position, // Implicit
             ParamMode::Position, // Implicit
@@ -251,31 +303,27 @@ mod tests {
         ];
         assert_eq!(opcode, Opcode::Add);
         assert_eq!(modes, expected_modes);
+
+
+        // FIXME: Add test for invalid ParamMode for a given param
+        // e.g., set an Immediate mode for a write location param.
     }
 
     #[test]
-    fn output_test() {
-        let mut run = Run {
-            memory: vec![1, 0, 0, 0, 99],
-        };
+    fn memory_after_run_test() {
+        let mut run = Run::new(vec![1, 0, 0, 0, 99]);
         let _ = run.start();
         assert_eq!(run.memory, vec![2, 0, 0, 0, 99]);
 
-        let mut run = Run {
-            memory: vec![2, 3, 0, 3, 99],
-        };
+        let mut run = Run::new(vec![2, 3, 0, 3, 99]);
         let _ = run.start();
         assert_eq!(run.memory, vec![2, 3, 0, 6, 99]);
 
-        let mut run = Run {
-            memory: vec![2, 4, 4, 5, 99, 0],
-        };
+        let mut run = Run::new(vec![2, 4, 4, 5, 99, 0]);
         let _ = run.start();
         assert_eq!(run.memory, vec![2, 4, 4, 5, 99, 9801]);
 
-        let mut run = Run {
-            memory: vec![1, 1, 1, 4, 99, 5, 6, 0, 99],
-        };
+        let mut run = Run::new(vec![1, 1, 1, 4, 99, 5, 6, 0, 99]);
         let _ = run.start();
         assert_eq!(run.memory, vec![30, 1, 1, 4, 2, 5, 6, 0, 99]);
     }
