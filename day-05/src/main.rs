@@ -53,11 +53,15 @@ impl fmt::Display for Error {
 
 #[derive(PartialEq, Debug, Copy, Clone)]
 pub enum Opcode {
-    Add = 1,        // OPCODE A B RESULT_POS
-    Multiply = 2,   // OPCODE A B RESULT_POS
-    StoreInput = 3, // OPCODE A where A is the location where to store input
-    Output = 4,     // OPCODE A
-    Exit = 99,      // OPCODE
+    Add = 1,         // OPCODE A B RESULT_POS
+    Multiply = 2,    // OPCODE A B RESULT_POS
+    StoreInput = 3,  // OPCODE A where A is the location where to store input
+    Output = 4,      // OPCODE A.
+    JumpIfTrue = 5,  // OPCODE TO_TEST JMP_POS
+    JumpIfFalse = 6, // OPCODE TO_TEST JMP_POS
+    LessThan = 7,    // OPCODE A B RESULT_POS
+    Equals = 8,      // OPCODE A B RESULT_POS
+    Exit = 99,       // OPCODE
 }
 
 impl Opcode {
@@ -68,6 +72,10 @@ impl Opcode {
             Opcode::Multiply => 4,
             Opcode::StoreInput => 2,
             Opcode::Output => 2,
+            Opcode::JumpIfTrue => 3,
+            Opcode::JumpIfFalse => 3,
+            Opcode::LessThan => 4,
+            Opcode::Equals => 4,
             Opcode::Exit => 1,
         }
     }
@@ -159,15 +167,14 @@ impl Program {
 /// independent runs.
 /// Memory is a simple Vec
 pub struct Run {
-    /// The Program Counter moves from one instruction head to another.
-    /// It *never* points to the params of an instruction.
-    pc: usize,
+    /// The Instruction Pointer moves from one instruction head to another.
+    ip: usize,
     memory: Vec<isize>,
 }
 
 impl Run {
     pub fn new(memory: Vec<isize>) -> Self {
-        Self { pc: 0, memory }
+        Self { ip: 0, memory }
     }
 
     pub fn ask_integer_from_user(&self) -> Result<isize, Error> {
@@ -214,42 +221,71 @@ impl Run {
         Ok(val)
     }
 
-    /// Return false if the program should stop.
-    fn execute_instruction(&mut self, instruction: &Instruction) -> Result<bool, Error> {
+    /// Return the new position of the instruction pointer
+    /// If there is no new position for the ip, terminate the program.
+    fn execute_instruction(&mut self, instruction: &Instruction) -> Result<Option<usize>, Error> {
         match &instruction.opcode {
             Opcode::Add => {
                 let a: isize = self.param_value(&instruction.params[0])?;
                 let b = self.param_value(&instruction.params[1])?;
-                let result_position = instruction.params[2].content;
-                self.set_mem(result_position as usize, a + b)?;
+                let result_pos = instruction.params[2].content;
+                self.set_mem(result_pos as usize, a + b)?;
             }
             Opcode::Multiply => {
                 let a: isize = self.param_value(&instruction.params[0])?;
                 let b = self.param_value(&instruction.params[1])?;
-                let result_position = instruction.params[2].content;
-                self.set_mem(result_position as usize, a * b)?;
+                let result_pos = instruction.params[2].content;
+                self.set_mem(result_pos as usize, a * b)?;
             }
             Opcode::StoreInput => {
                 let user_input = self.ask_integer_from_user()?;
-                let result_position = instruction.params[0].content as usize;
-                self.set_mem(result_position, user_input)?;
+                let result_pos = instruction.params[0].content as usize;
+                self.set_mem(result_pos, user_input)?;
             }
             Opcode::Output => {
                 let a = self.param_value(&instruction.params[0])?;
                 println!("Output Instruction: {}", a);
             }
-            Opcode::Exit => return Ok(false),
+            Opcode::JumpIfTrue => {
+                let a = self.param_value(&instruction.params[0])?;
+                if a != 0 {
+                    let jump_to = self.param_value(&instruction.params[1])?;
+                    return Ok(Some(jump_to as usize));
+                }
+            }
+            Opcode::JumpIfFalse => {
+                let a = self.param_value(&instruction.params[0])?;
+                if a == 0 {
+                    let jump_to = self.param_value(&instruction.params[1])?;
+                    return Ok(Some(jump_to as usize));
+                }
+            }
+            Opcode::LessThan => {
+                let a = self.param_value(&instruction.params[0])?;
+                let b = self.param_value(&instruction.params[1])?;
+                let result_pos = instruction.params[2].content as usize;
+                let result = if a < b { 1 } else { 0 };
+                self.set_mem(result_pos, result)?
+            }
+            Opcode::Equals => {
+                let a = self.param_value(&instruction.params[0])?;
+                let b = self.param_value(&instruction.params[1])?;
+                let result_pos = instruction.params[2].content as usize;
+                let result = if a == b { 1 } else { 0 };
+                self.set_mem(result_pos, result)?
+            }
+            Opcode::Exit => return Ok(None),
         };
 
-        // By default we just continue execution
-        Ok(true)
+        // The default behavoir is
+        Ok(Some(self.ip + &instruction.opcode.size()))
     }
 
     pub fn start(&mut self) -> Result<(), Error> {
-        self.pc = 0;
+        self.ip = 0;
 
-        while self.pc < self.memory.len() {
-            let instruction_head = self.memory[self.pc];
+        while self.ip < self.memory.len() {
+            let instruction_head = self.memory[self.ip];
             let (opcode, param_modes) = Instruction::parse_meta_data(instruction_head)?;
 
             let params = param_modes
@@ -257,17 +293,17 @@ impl Run {
                 .enumerate()
                 .map(|(index, mode)| -> Result<Param, Error> {
                     Ok(Param {
-                        content: self.get_mem(self.pc + index + 1)?,
+                        content: self.get_mem(self.ip + index + 1)?,
                         mode: *mode,
                     })
                 })
                 .collect::<Result<Vec<Param>, Error>>()?;
 
             let instruction = Instruction { opcode, params };
-            if self.execute_instruction(&instruction)? {
-                self.pc += opcode.size();
-            } else {
-                break; // Terminate the program here.
+
+            match self.execute_instruction(&instruction)? {
+                Some(new_ip) => self.ip = new_ip,
+                None => break,
             }
         }
 
