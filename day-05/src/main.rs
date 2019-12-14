@@ -42,7 +42,7 @@ impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Error::InvalidSourceCode => write!(f, "Error while reading source code"),
-            Error::InvalidOpcode(v) => write!(f, "InvalidOpcode: {})", v),
+            Error::InvalidOpcode(v) => write!(f, "InvalidOpcode: {}", v),
             Error::InvalidParamMode(v) => write!(f, "InvalidParamMode. Opcode decl.: {})", v),
             Error::IncompleteInstruction => write!(f, "Incomplete Command"),
             Error::PointerAccessError => write!(f, "Invalid pointer address"),
@@ -100,6 +100,12 @@ pub struct Instruction {
 }
 
 impl Instruction {
+    /// the `value` parameter contains the opcode itself and the Param mode for
+    /// the parameters. 
+    /// Example: 01107 means Opcode 7 (`07`). 
+    /// Params 0: Mode 1
+    /// Params 1: Mode 1
+    /// Params 2: Mode 0
     pub fn parse_meta_data(value: isize) -> Result<(Opcode, Vec<ParamMode>), Error> {
         let opcode = match value % 100 {
             // we could use the [num_enum](https://crates.io/crates/num_enum)
@@ -108,6 +114,10 @@ impl Instruction {
             2 => Opcode::Multiply,
             3 => Opcode::StoreInput,
             4 => Opcode::Output,
+            5 => Opcode::JumpIfTrue,
+            6 => Opcode::JumpIfFalse,
+            7 => Opcode::LessThan,
+            8 => Opcode::Equals,
             99 => Opcode::Exit,
             _ => return Err(Error::InvalidOpcode(value)),
         };
