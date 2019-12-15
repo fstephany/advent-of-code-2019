@@ -1,6 +1,6 @@
 use std::fmt;
 use std::fs::File;
-use std::io::{stdin, BufRead, BufReader, Read};
+use std::io::{stdin, stdout, BufRead, BufReader, Read, Write};
 
 // General note. We could be safer when converting integer
 // help: you can convert an `isize` to `usize` and panic if the converted value wouldn't fit
@@ -36,6 +36,7 @@ pub enum Error {
     /// Error while trying to access a memory address
     PointerAccessError,
     InvalidUserInput,
+    IOError,
 }
 
 impl fmt::Display for Error {
@@ -47,7 +48,14 @@ impl fmt::Display for Error {
             Error::IncompleteInstruction => write!(f, "Incomplete Command"),
             Error::PointerAccessError => write!(f, "Invalid pointer address"),
             Error::InvalidUserInput => write!(f, "Invalid user input"),
+            Error::IOError => write!(f, "IO Error"),
         }
+    }
+}
+
+impl From<std::io::Error> for Error {
+    fn from(_err: std::io::Error) -> Self {
+        Error::IOError
     }
 }
 
@@ -101,8 +109,8 @@ pub struct Instruction {
 
 impl Instruction {
     /// the `value` parameter contains the opcode itself and the Param mode for
-    /// the parameters. 
-    /// Example: 01107 means Opcode 7 (`07`). 
+    /// the parameters.
+    /// Example: 01107 means Opcode 7 (`07`).
     /// Params 0: Mode 1
     /// Params 1: Mode 1
     /// Params 2: Mode 0
@@ -167,7 +175,7 @@ impl Program {
     /// As the memory is copied for each run, they are fully independant.
     pub fn run(&self) -> Result<(), Error> {
         let data = self.src.clone();
-        let mut run = Run::new(data);
+        let mut run = Run::new(data, stdin(), stdout());
         run.start()
     }
 }
@@ -176,24 +184,33 @@ impl Program {
 /// runnning. It is useful to keep it separate so we can make multiple
 /// independent runs.
 /// Memory is a simple Vec
-pub struct Run {
+pub struct Run<R: Read, W: Write> {
     /// The Instruction Pointer moves from one instruction head to another.
     ip: usize,
     memory: Vec<isize>,
+    input: BufReader<R>,
+    output: W,
 }
 
-impl Run {
-    pub fn new(memory: Vec<isize>) -> Self {
-        Self { ip: 0, memory }
+impl<R: Read, W: Write> Run<R, W> {
+    pub fn new(memory: Vec<isize>, input: R, output: W) -> Self {
+        let buffered = BufReader::new(input);
+        Self {
+            ip: 0,
+            memory,
+            input: buffered,
+            output,
+        }
     }
 
-    pub fn ask_integer_from_user(&self) -> Result<isize, Error> {
-        println!("Please enter an integer:");
-        let mut input = String::new();
-        stdin()
-            .read_line(&mut input)
+    pub fn ask_integer_from_user(&mut self) -> Result<isize, Error> {
+        write!(&mut self.output, "Please enter an integer:\n")?;
+        let mut user_input = String::new();
+
+        self.input
+            .read_line(&mut user_input)
             .map_err(|_| Error::InvalidUserInput)?;
-        let integer = input
+        let integer = user_input
             .trim()
             .parse::<isize>()
             .map_err(|_| Error::InvalidUserInput)?;
@@ -254,7 +271,7 @@ impl Run {
             }
             Opcode::Output => {
                 let a = self.param_value(&instruction.params[0])?;
-                println!("Output Instruction: {}", a);
+                write!(&mut self.output, "{}\n", a)?;
             }
             Opcode::JumpIfTrue => {
                 let a = self.param_value(&instruction.params[0])?;
@@ -356,19 +373,21 @@ mod tests {
 
     #[test]
     fn memory_after_run_test() {
-        let mut run = Run::new(vec![1, 0, 0, 0, 99]);
+        let input = "".as_bytes();
+
+        let mut run = Run::new(vec![1, 0, 0, 0, 99], input, stdout());
         let _ = run.start();
         assert_eq!(run.memory, vec![2, 0, 0, 0, 99]);
 
-        let mut run = Run::new(vec![2, 3, 0, 3, 99]);
+        let mut run = Run::new(vec![2, 3, 0, 3, 99], input, stdout());
         let _ = run.start();
         assert_eq!(run.memory, vec![2, 3, 0, 6, 99]);
 
-        let mut run = Run::new(vec![2, 4, 4, 5, 99, 0]);
+        let mut run = Run::new(vec![2, 4, 4, 5, 99, 0], input, stdout());
         let _ = run.start();
         assert_eq!(run.memory, vec![2, 4, 4, 5, 99, 9801]);
 
-        let mut run = Run::new(vec![1, 1, 1, 4, 99, 5, 6, 0, 99]);
+        let mut run = Run::new(vec![1, 1, 1, 4, 99, 5, 6, 0, 99], input, stdout());
         let _ = run.start();
         assert_eq!(run.memory, vec![30, 1, 1, 4, 2, 5, 6, 0, 99]);
     }
@@ -383,5 +402,49 @@ mod tests {
 
         let program = Program::new("1,0,42".as_bytes()).unwrap();
         assert_eq!(program.src, vec![1, 0, 42]);
+    }
+
+    #[test]
+    fn equals_instruction_test() {
+        // POSITION MODE
+        // Using position mode, consider whether the input is equal to 8;
+        // output 1 (if it is) or 0 (if it is not)
+        let src = vec![3, 9, 8, 9, 10, 9, 4, 9, 99, -1, 8];
+
+        // EQUALS
+        let input_8 = "8\n".as_bytes();
+        let mut output: Vec<u8> = Vec::new();
+        let mut run = Run::new(src.clone(), input_8, &mut output);
+        let _ = run.start();
+        let expected_true = "Please enter an integer:\n1\n";
+        assert_eq!(output, expected_true.as_bytes());
+
+        // NOT EQUALS
+        let input_42 = "42\n".as_bytes();
+        let mut output: Vec<u8> = Vec::new();
+        let mut run = Run::new(src.clone(), input_42, &mut output);
+        let _ = run.start();
+        let expected = "Please enter an integer:\n0\n";
+        assert_eq!(output, expected.as_bytes());
+
+        // IMMEDIATE MODE
+        // input is equal to 8; output 1 (if it is) or 0 (if it is not)..
+        let src = vec![3, 3, 1108, -1, 8, 3, 4, 3, 99];
+
+        // EQUALS
+        let input_8 = "8\n".as_bytes();
+        let mut output: Vec<u8> = Vec::new();
+        let mut run = Run::new(src.clone(), input_8, &mut output);
+        let _ = run.start();
+        let expected_true = "Please enter an integer:\n1\n";
+        assert_eq!(output, expected_true.as_bytes());
+
+        // NOT EQUALS
+        let input_42 = "42\n".as_bytes();
+        let mut output: Vec<u8> = Vec::new();
+        let mut run = Run::new(src.clone(), input_42, &mut output);
+        let _ = run.start();
+        let expected = "Please enter an integer:\n0\n";
+        assert_eq!(output, expected.as_bytes());
     }
 }
