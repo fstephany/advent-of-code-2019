@@ -10,6 +10,9 @@ fn main() {
 
     println!("Number of entities in map: {}", map.nodes.len());
     println!("Number of directs & indirects orbits: {}", map.total_orbits);
+
+    let santa_path = map.required_orbital_transfers("YOU", "SAN");
+    println!("orbital transfers between YOU & SAN: {}", santa_path.len());
 }
 
 
@@ -35,18 +38,37 @@ impl fmt::Display for Error {
 
 impl std::error::Error for Error {}
 
+
+struct Node {
+    name: String,
+    parent: Option<String>,
+    children: Vec<String>,
+    depth: u32
+}
+
+impl Node {
+    fn new(name: String, parent: Option<String>) -> Self {
+        Self {
+            name, 
+            parent,
+            children: Vec::new(),
+            depth: 0
+        }
+    }
+}
+
 struct Map {
     /// Each node is an entry in the hashmap with the form:
     /// (key) -> (value)
     ///  NAME -> Vec<CHILD_NAME>, DEPTH_FROM_ROOT
     /// The root is the "COM" node.
-    nodes: HashMap<String, (Vec<String>, u32)>,
+    nodes: HashMap<String, Node>,
     total_orbits: u32,
 }
 
 impl Map {
     pub fn parse<R: Read>(src: R) -> Result<Self, Error> {
-        let mut nodes = BufReader::new(src)
+        let mut nodes: HashMap<String, Node> = BufReader::new(src)
             .lines()
             .map(|line| -> Result<(String, String), Error> {
                 let orbit_desc = line.unwrap();
@@ -61,15 +83,17 @@ impl Map {
             .fold_results(HashMap::new(), |mut acc, node| {
                 let (parent_name, child_name) = node;
 
-                let _child_node = acc
+                let child_node = acc
                     .entry(child_name.to_owned())
-                    .or_insert_with(|| (Vec::new(), 0));
+                    .or_insert_with(|| Node::new(child_name.to_owned(), Some(parent_name.to_owned())));
+                child_node.parent = Some(parent_name.to_owned());
+                
 
                 let parent_node = acc
                     .entry(parent_name.to_owned())
-                    .or_insert_with(|| (Vec::new(), 0));
+                    .or_insert_with(|| Node::new(child_name.to_owned(), None));
+                parent_node.children.push(child_name.to_owned());
 
-                parent_node.0.push(child_name.to_owned());
                 acc
             })?;
             
@@ -85,17 +109,21 @@ impl Map {
                 .get_mut(&node_name)
                 .ok_or_else(||Error::UnknownEntity(node_name))?;
 
-            for child in &node.0 {
+            for child in &node.children {
                 queue.push_back((child.clone(), level + 1));
             }
 
-            node.1 = level;
+            node.depth = level;
             total_orbits += level
         }
 
 
         Ok(Self { nodes, total_orbits })
     }
+
+    pub fn required_orbital_transfers(&self, from: &str, to: &str) -> Vec<Node> {
+        Vec::new()
+    } 
 }
 
 #[cfg(test)]
@@ -129,11 +157,11 @@ mod tests {
     fn parse_map_ordering_test() {
         let map = Map::parse(MAP_DESCRIPTION.as_bytes()).unwrap();
         
-        assert_eq!(map.nodes.get("COM").unwrap().1, 0);
-        assert_eq!(map.nodes.get("B").unwrap().1, 1);
-        assert_eq!(map.nodes.get("H").unwrap().1, 3);
-        assert_eq!(map.nodes.get("D").unwrap().1, 3);
-        assert_eq!(map.nodes.get("L").unwrap().1, 7);
+        assert_eq!(map.nodes.get("COM").unwrap().depth, 0);
+        assert_eq!(map.nodes.get("B").unwrap().depth, 1);
+        assert_eq!(map.nodes.get("H").unwrap().depth, 3);
+        assert_eq!(map.nodes.get("D").unwrap().depth, 3);
+        assert_eq!(map.nodes.get("L").unwrap().depth, 7);
     }
 
     #[test]
