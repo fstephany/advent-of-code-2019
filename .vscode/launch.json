@@ -4,6 +4,7 @@
     // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
     "version": "0.2.0",
     "configurations": [
+
         {
             "type": "lldb",
             "request": "launch",
@@ -114,8 +115,7 @@
             },
             "args": [],
             "cwd": "${workspaceFolder}"
-        }
-
+        },
         {
             "type": "lldb",
             "request": "launch",
@@ -129,6 +129,25 @@
                 ],
                 "filter": {
                     "name": "day-05",
+                    "kind": "bin"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in executable 'day-06'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--bin=day-06",
+                    "--package=day-06"
+                ],
+                "filter": {
+                    "name": "day-06",
                     "kind": "bin"
                 }
             },

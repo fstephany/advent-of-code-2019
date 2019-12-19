@@ -11,8 +11,12 @@ fn main() {
     println!("Number of entities in map: {}", map.nodes.len());
     println!("Number of directs & indirects orbits: {}", map.total_orbits);
 
+    // This is weird. I get 428 but AoC tells me it's too low. 
+    // I was almost sure that it was an indexing error so I skip the "-1" 
+    // when we do the distance sum. And it works (ie., 430). There's something
+    // bizarre going on here.
     let santa_path = map.required_orbital_transfers("YOU", "SAN");
-    println!("orbital transfers between YOU & SAN: {}", santa_path.len());
+    println!("Orbital transfers between YOU & SAN: {}", santa_path.unwrap());
 }
 
 
@@ -21,7 +25,8 @@ pub enum Error {
     IOError,
     NoCOM,
     UnknownEntity(String),
-    InvalidOrbitDescription(String)
+    InvalidOrbitDescription(String),
+    PathNotFound
 }
 
 
@@ -32,6 +37,7 @@ impl fmt::Display for Error {
             Error::NoCOM => write!(f, "Missing Center of Mass (COM)"),
             Error::InvalidOrbitDescription(v) => write!(f, "Invalid orbit description: {})", v),
             Error::UnknownEntity(v) => write!(f, "Unknown entity of the map: {})", v),
+            Error::PathNotFound => write!(f, "Could not find a path between two nodes"),
         }
     }
 }
@@ -117,13 +123,46 @@ impl Map {
             total_orbits += level
         }
 
-
         Ok(Self { nodes, total_orbits })
     }
 
-    pub fn required_orbital_transfers(&self, from: &str, to: &str) -> Vec<Node> {
-        Vec::new()
-    } 
+    pub fn required_orbital_transfers(&self, origin: &str, dst: &str) -> Result<u32, Error> {
+        // Collect all the nodes from the destiation up to the root. 
+        // That will give us a 'tinted' path that we will cross-check with the 
+        // path of the origin up to the root. 
+        let mut dst_to_root_path = Vec::new();
+        let mut current = self.get(dst)?;
+        let dst_depth = current.depth;
+        while let Some(parent) = &current.parent {
+            current = self.get(parent)?;
+            dst_to_root_path.push(current);
+        }
+
+        current = self.nodes.get(origin).unwrap(); 
+        let origin_depth = current.depth;
+        while let Some(parent) = &current.parent {
+            let parent_node = self.get(parent)?;
+            
+            let crossing = dst_to_root_path
+                .iter()
+                .find(|n| n.name == parent_node.name);
+            
+            match crossing {
+                Some(crossing) => {
+                    let dist_dest_crossing = dst_depth - crossing.depth - 1;
+                    let dist_origin_crossing = origin_depth - crossing.depth - 1;
+                    return Ok(dist_dest_crossing + dist_origin_crossing)
+                }
+                None => current = parent_node
+            }
+        }
+
+        Err(Error::PathNotFound)
+    }
+
+    fn get(&self, name: &str) -> Result<&Node, Error> {
+        self.nodes.get(name).ok_or_else(||Error::UnknownEntity(name.to_owned()))
+    }
 }
 
 #[cfg(test)]
@@ -135,7 +174,7 @@ mod tests {
     // COM - B - C - D - E - F
     //                \
     //                 I
-    static MAP_DESCRIPTION: &str = "COM)B\n\
+    static MAP_DESC: &str = "COM)B\n\
         B)C\n\
         C)D\n\
         D)E\n\
@@ -147,15 +186,29 @@ mod tests {
         J)K\n\
         K)L";
 
+    static SANTA_MAP_DESC: &str = "COM)B\n\
+        B)C\n\
+        C)D\n\
+        D)E\n\
+        E)F\n\
+        B)G\n\
+        G)H\n\
+        D)I\n\
+        E)J\n\
+        J)K\n\
+        K)L\n\
+        K)YOU\n\
+        I)SAN";
+
     #[test]
     fn parse_map_test() {
-        let map = Map::parse(MAP_DESCRIPTION.as_bytes()).unwrap();
+        let map = Map::parse(MAP_DESC.as_bytes()).unwrap();
         assert_eq!(map.nodes.len(), 12);
     }
 
     #[test]
     fn parse_map_ordering_test() {
-        let map = Map::parse(MAP_DESCRIPTION.as_bytes()).unwrap();
+        let map = Map::parse(MAP_DESC.as_bytes()).unwrap();
         
         assert_eq!(map.nodes.get("COM").unwrap().depth, 0);
         assert_eq!(map.nodes.get("B").unwrap().depth, 1);
@@ -166,7 +219,19 @@ mod tests {
 
     #[test]
     fn total_orbits_test() {
-        let map = Map::parse(MAP_DESCRIPTION.as_bytes()).unwrap();
+        let map = Map::parse(MAP_DESC.as_bytes()).unwrap();
         assert_eq!(map.total_orbits, 42);
+    }
+
+    #[test]
+    fn required_orbital_transfers_test() {
+        let map = Map::parse(MAP_DESC.as_bytes()).unwrap();
+
+        assert_eq!(map.required_orbital_transfers("L", "H"), Ok(6));
+        assert_eq!(map.required_orbital_transfers("L", "I"), Ok(3));
+        assert_eq!(map.required_orbital_transfers("H", "I"), Ok(3));
+
+        let santa_map = Map::parse(SANTA_MAP_DESC.as_bytes()).unwrap();
+        assert_eq!(santa_map.required_orbital_transfers("YOU", "SAN"), Ok(4));
     }
 }
